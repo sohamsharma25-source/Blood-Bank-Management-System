@@ -1,2 +1,7 @@
 package bloodbank.model;
-public enum HospitalStatus { PENDING, APPROVED, REJECTED }
+
+public enum HospitalStatus {
+    PENDING,
+    APPROVED,
+    REJECTED
+}

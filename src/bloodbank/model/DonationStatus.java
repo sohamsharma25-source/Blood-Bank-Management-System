@@ -1,2 +1,7 @@
 package bloodbank.model;
-public enum DonationStatus { PENDING, ACCEPTED, REJECTED }
+
+public enum DonationStatus {
+    PENDING,
+    ACCEPTED,
+    REJECTED
+}

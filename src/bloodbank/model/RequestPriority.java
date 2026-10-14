@@ -1,2 +1,6 @@
 package bloodbank.model;
-public enum RequestPriority { NORMAL, EMERGENCY }
+
+public enum RequestPriority {
+    NORMAL,
+    EMERGENCY
+}
