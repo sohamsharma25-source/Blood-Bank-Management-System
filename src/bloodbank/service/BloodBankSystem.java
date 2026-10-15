@@ -32,6 +32,7 @@ public class BloodBankSystem {
     private final IdGenerator issueIds = new IdGenerator("I", 1);
 
     private final int[] thresholds = new int[BloodGroup.values().length];
+    private int donationIntervalDays = 90;
 
     public BloodBankSystem() {
         Arrays.fill(thresholds, 3);
@@ -118,11 +119,58 @@ public class BloodBankSystem {
         return null;
     }
 
-    public synchronized Donation recordDonation(String donorId, int units, LocalDate date) {
+    public synchronized int getDonationIntervalDays() {
+        return donationIntervalDays;
+    }
+
+    public synchronized void setDonationIntervalDays(int days) {
+        if (days < 0) {
+            throw new IllegalArgumentException("Donation interval cannot be negative");
+        }
+        this.donationIntervalDays = days;
+    }
+
+    public synchronized LocalDate getLastDonationDate(String donorId) {
+        LocalDate latest = null;
+        for (int i = 0; i < doc; i++) {
+            if (donations[i].getDonorId().equalsIgnoreCase(donorId) && donations[i].getStatus() != DonationStatus.REJECTED) {
+                if (latest == null || donations[i].getDate().isAfter(latest)) {
+                    latest = donations[i].getDate();
+                }
+            }
+        }
+        return latest;
+    }
+
+    public synchronized void validateDonationEligibility(String donorId, LocalDate date) throws DonorIneligibleException {
+        Donor d = findDonor(donorId);
+        if (d == null) {
+            throw new IllegalArgumentException("Donor not found: " + donorId);
+        }
+        LocalDate last = getLastDonationDate(donorId);
+        if (last != null) {
+            long daysPassed = java.time.temporal.ChronoUnit.DAYS.between(last, date);
+            if (daysPassed < 0) {
+                throw new DonorIneligibleException("Donation date (" + date + ") cannot be earlier than previous donation on " + last);
+            }
+            if (daysPassed < donationIntervalDays) {
+                long daysRemaining = donationIntervalDays - daysPassed;
+                LocalDate nextEligible = last.plusDays(donationIntervalDays);
+                throw new DonorIneligibleException(
+                    String.format("Donor %s is not eligible to donate. Minimum interval is %d days. Last donation was on %s (%d day(s) ago). Eligible on %s (%d day(s) remaining).",
+                        donorId, donationIntervalDays, last, daysPassed, nextEligible, daysRemaining),
+                    donorId, last, nextEligible, daysRemaining
+                );
+            }
+        }
+    }
+
+    public synchronized Donation recordDonation(String donorId, int units, LocalDate date) throws DonorIneligibleException {
         Donor d = findDonor(donorId);
         if (d == null) {
             throw new IllegalArgumentException("Donor not found");
         }
+        validateDonationEligibility(donorId, date);
         if (doc == donations.length) {
             throw new IllegalStateException("Donation capacity reached");
         }
@@ -266,7 +314,7 @@ public class BloodBankSystem {
     public synchronized void printInventory() {
         System.out.println("\n--- INVENTORY (eligible available units) ---");
         for (BloodGroup g : BloodGroup.values()) {
-            System.out.printf("%-5s : %d%s%n", g.label(), available(g), available(g) < threshold(g) ? "  **LOW STOCK**" : "");
+            System.out.printf("%-5s : %d unit(s)  [Threshold: %d]%n", g.label(), available(g), threshold(g));
         }
     }
 
@@ -281,7 +329,20 @@ public class BloodBankSystem {
 
     public synchronized void printDonors() {
         for (int i = 0; i < dc; i++) {
-            System.out.printf("%s | %s | %s | age %d | %s%n", donors[i].getId(), donors[i].getName(), donors[i].getBloodGroup().label(), donors[i].getAge(), donors[i].getPhone());
+            Donor d = donors[i];
+            LocalDate last = getLastDonationDate(d.getId());
+            String eligibility;
+            if (last == null) {
+                eligibility = "Eligible (no prior donations)";
+            } else {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(last, LocalDate.now());
+                if (days >= donationIntervalDays) {
+                    eligibility = "Eligible (last donated: " + last + ", " + days + "d ago)";
+                } else {
+                    eligibility = "Ineligible until " + last.plusDays(donationIntervalDays) + " (" + (donationIntervalDays - days) + "d left)";
+                }
+            }
+            System.out.printf("%s | %s | %s | age %d | %s | %s%n", d.getId(), d.getName(), d.getBloodGroup().label(), d.getAge(), d.getPhone(), eligibility);
         }
         if (dc == 0) {
             System.out.println("No donors.");
@@ -332,6 +393,61 @@ public class BloodBankSystem {
         }
     }
 
+    public synchronized BloodUnit findUnit(String id) {
+        for (int i = 0; i < uc; i++) {
+            if (units[i].getId().equalsIgnoreCase(id)) {
+                return units[i];
+            }
+        }
+        return null;
+    }
+
+    public synchronized void printHospitalInventory(String hid) {
+        HospitalUser h = findHospital(hid);
+        String name = h != null ? h.getName() : hid;
+        System.out.println("\n--- " + name.toUpperCase() + " INVENTORY (Hospital Stock) ---");
+
+        int[] counts = new int[BloodGroup.values().length];
+        int totalUsable = 0;
+        int totalExpired = 0;
+        LocalDate today = LocalDate.now();
+
+        for (int i = 0; i < ic; i++) {
+            if (issues[i].getHospitalId().equalsIgnoreCase(hid)) {
+                BloodUnit u = findUnit(issues[i].getUnitId());
+                if (u != null && u.getStatus() == BloodUnitStatus.ISSUED) {
+                    if (!u.getExpiry().isBefore(today)) {
+                        counts[u.getGroup().ordinal()]++;
+                        totalUsable++;
+                    } else {
+                        totalExpired++;
+                    }
+                }
+            }
+        }
+
+        for (BloodGroup g : BloodGroup.values()) {
+            System.out.printf("%-5s : %d unit(s)%n", g.label(), counts[g.ordinal()]);
+        }
+        System.out.println("Total usable units in hospital stock: " + totalUsable);
+        if (totalExpired > 0) {
+            System.out.println("Expired units on record: " + totalExpired);
+        }
+
+        if (totalUsable > 0) {
+            System.out.println("\nReceived Blood Units:");
+            for (int i = 0; i < ic; i++) {
+                if (issues[i].getHospitalId().equalsIgnoreCase(hid)) {
+                    BloodUnit u = findUnit(issues[i].getUnitId());
+                    if (u != null && u.getStatus() == BloodUnitStatus.ISSUED && !u.getExpiry().isBefore(today)) {
+                        System.out.printf("  Unit ID: %s | Group: %-3s | Expires: %s | Received: %s%n",
+                                u.getId(), u.getGroup().label(), u.getExpiry(), issues[i].getDate());
+                    }
+                }
+            }
+        }
+    }
+
     public synchronized void printIssues() {
         for (int i = 0; i < ic; i++) {
             System.out.printf("%s | request=%s | hospital=%s | unit=%s | %s%n", issues[i].getId(), issues[i].getRequestId(), issues[i].getHospitalId(), issues[i].getUnitId(), issues[i].getDate());
@@ -360,7 +476,7 @@ public class BloodBankSystem {
                 accepted++;
             }
         }
-        System.out.println("\n--- SUMMARY REPORT ---\nHospitals: " + hc + " (pending " + pendingH + ")\nDonors: " + dc + "\nDonations: " + doc + " (accepted " + accepted + ")\nBlood units created: " + uc + "\nRequests: " + rc + " (pending " + pendingR + ")\nIssues: " + ic);
+        System.out.println("\n--- SUMMARY REPORT ---\nHospitals: " + hc + " (pending " + pendingH + ")\nDonors: " + dc + "\nDonations: " + doc + " (accepted " + accepted + ")\nBlood units created: " + uc + "\nRequests: " + rc + " (pending " + pendingR + ")\nIssues: " + ic + "\nDonation interval policy: " + donationIntervalDays + " days");
         printInventory();
     }
 
@@ -382,6 +498,16 @@ public class BloodBankSystem {
 
     public synchronized int requestCount() {
         return rc;
+    }
+
+    public synchronized int pendingRequestCount() {
+        int count = 0;
+        for (int i = 0; i < rc; i++) {
+            if (requests[i].getStatus() == RequestStatus.PENDING) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private void saveHospitals() {

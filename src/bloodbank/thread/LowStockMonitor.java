@@ -19,11 +19,6 @@ public class LowStockMonitor implements Runnable {
     public void run() {
         while (running) {
             try {
-                for (BloodGroup g : BloodGroup.values()) {
-                    if (system.available(g) < system.threshold(g)) {
-                        System.out.println("[LOW-STOCK MONITOR] " + g.label() + " has " + system.available(g) + " available unit(s).");
-                    }
-                }
                 Thread.sleep(60000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

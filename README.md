@@ -38,7 +38,8 @@ The program creates a `data` directory in the working directory. Do not delete i
 - Polymorphism: overridden `getRole()` and `displayName()` using a `User` reference.
 - Abstract class: `User`.
 - Interface: `FileRecord` is included as a persistence contract example; file persistence is currently centralized in `FileManager`/`BloodBankSystem`.
-- Exceptions: custom `InsufficientStockException` and `InvalidOperationException`.
+- Exceptions: custom `InsufficientStockException`, `InvalidOperationException`, and `DonorIneligibleException` (enforces minimum donation intervals).
+- Date & time API: `java.time.LocalDate` with `ChronoUnit.DAYS` for donation intervals (standard 90-day deferral rule) and blood-unit expiry (35 days).
 - Multithreading: `LowStockMonitor` implements `Runnable` and runs on a daemon thread.
 - File handling: text files in `data/` loaded at startup and saved on changes.
 

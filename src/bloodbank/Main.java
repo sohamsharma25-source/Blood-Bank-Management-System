@@ -1,5 +1,6 @@
 package bloodbank;
 
+import bloodbank.exception.*;
 import bloodbank.model.*;
 import bloodbank.service.BloodBankSystem;
 import bloodbank.thread.LowStockMonitor;
@@ -13,11 +14,6 @@ public class Main {
     private static final String ADMIN_PASS = "admin123";
 
     public static void main(String[] args) {
-        LowStockMonitor monitor = new LowStockMonitor(app);
-        Thread thread = new Thread(monitor, "LowStockMonitor");
-        thread.setDaemon(true);
-        thread.start();
-
         System.out.println("=== BLOOD BANK MANAGEMENT SYSTEM ===");
         System.out.println("Demo admin credentials: admin / admin123 (change for any real deployment)");
 
@@ -44,8 +40,6 @@ public class Main {
             }
         }
 
-        monitor.stop();
-        thread.interrupt();
         sc.close();
         System.out.println("Goodbye.");
     }
@@ -55,14 +49,14 @@ public class Main {
         int c = readInt("Choose: ");
         if (c == 1) {
             HospitalUser h = app.registerHospital(
-                read("Hospital name: "),
-                read("Contact person: "),
-                read("Phone: "),
-                read("Address: "),
-                read("Username: "),
-                read("Password: ")
-            );
-            System.out.println("Registration submitted. Hospital ID: " + h.getId() + " | Status: PENDING. Ask admin to approve it.");
+                    read("Hospital name: "),
+                    read("Contact person: "),
+                    read("Phone: "),
+                    read("Address: "),
+                    read("Username: "),
+                    read("Password: "));
+            System.out.println("Registration submitted. Hospital ID: " + h.getId()
+                    + " | Status: PENDING. Ask admin to approve it.");
         } else if (c == 2) {
             String u = read("Username: ");
             String p = read("Password: ");
@@ -80,15 +74,18 @@ public class Main {
     private static void hospitalMenu(HospitalUser h) {
         boolean run = true;
         while (run) {
-            System.out.println("\n--- HOSPITAL DASHBOARD: " + h.getName() + " ---\n1. View profile\n2. View blood stock\n3. Request blood\n4. View my requests\n5. View issue records\n0. Logout");
+            System.out.println("\n--- HOSPITAL DASHBOARD: " + h.getName()
+                    + " ---\n1. View profile\n2. View hospital inventory\n3. Request blood\n4. View my requests\n5. View issue records\n0. Logout");
             int c = readInt("Choose: ");
             try {
                 switch (c) {
                     case 1:
-                        System.out.println(h.displayName() + " | ID=" + h.getId() + " | status=" + h.getStatus() + " | contact=" + h.getContactPerson() + " | phone=" + h.getPhone() + " | address=" + h.getAddress());
+                        System.out.println(h.displayName() + " | ID=" + h.getId() + " | status=" + h.getStatus()
+                                + " | contact=" + h.getContactPerson() + " | phone=" + h.getPhone() + " | address="
+                                + h.getAddress());
                         break;
                     case 2:
-                        app.printInventory();
+                        app.printHospitalInventory(h.getId());
                         break;
                     case 3:
                         BloodGroup g = chooseGroup();
@@ -131,7 +128,8 @@ public class Main {
     private static void adminMenu() {
         boolean run = true;
         while (run) {
-            System.out.println("\n--- ADMIN DASHBOARD ---\n1. View hospitals\n2. Approve/reject hospital\n3. Register donor\n4. View donors\n5. Record donation\n6. View donations\n7. Accept/reject donation\n8. View inventory\n9. Set low-stock threshold\n10. View requests\n11. Approve/reject request\n12. Issue blood\n13. View issue records\n14. Summary report\n0. Logout");
+            System.out.println(
+                    "\n--- ADMIN DASHBOARD ---\n1. View hospitals\n2. Approve/reject hospital\n3. Register donor\n4. View donors\n5. Record donation\n6. View donations\n7. Accept/reject donation\n8. View inventory\n9. Set low-stock threshold\n10. View requests\n11. Approve/reject request\n12. Issue blood\n13. View issue records\n14. Summary report\n15. Set donation interval\n0. Logout");
             int c = readInt("Choose: ");
             try {
                 switch (c) {
@@ -159,7 +157,9 @@ public class Main {
                         app.printDonors();
                         String did = read("Donor ID: ");
                         int qty = readInt("Donation units (1-5): ");
-                        Donation don = app.recordDonation(did, qty, LocalDate.now());
+                        String dateStr = read("Donation date (YYYY-MM-DD or Enter for today): ");
+                        LocalDate donDate = dateStr.isEmpty() ? LocalDate.now() : LocalDate.parse(dateStr);
+                        Donation don = app.recordDonation(did, qty, donDate);
                         System.out.println("Donation recorded: " + don.getId() + " | PENDING screening");
                         break;
                     case 6:
@@ -180,14 +180,23 @@ public class Main {
                         break;
                     case 9:
                         BloodGroup tg = chooseGroup();
-                        app.setThreshold(tg, readInt("New low-stock threshold: "));
-                        System.out.println("Threshold updated.");
+                        System.out.println("Current threshold for " + tg.label() + ": " + app.threshold(tg));
+                        int nth = readInt("New threshold: ");
+                        app.setThreshold(tg, nth);
+                        System.out.println("Threshold for " + tg.label() + " updated to " + nth + ".");
                         break;
                     case 10:
                         app.printRequests();
                         break;
                     case 11:
                         app.printRequests();
+                        if (app.requestCount() == 0) {
+                            break;
+                        }
+                        if (app.pendingRequestCount() == 0) {
+                            System.out.println("No pending requests to approve or reject.");
+                            break;
+                        }
                         String rid = read("Request ID: ");
                         int rd = readInt("1 Approve, 2 Reject: ");
                         if (rd != 1 && rd != 2) {
@@ -198,6 +207,9 @@ public class Main {
                         break;
                     case 12:
                         app.printRequests();
+                        if (app.requestCount() == 0) {
+                            break;
+                        }
                         String ir = read("Approved request ID: ");
                         int iq = readInt("Units to issue: ");
                         app.issueBlood(ir, iq);
@@ -209,12 +221,20 @@ public class Main {
                     case 14:
                         app.printReport();
                         break;
+                    case 15:
+                        System.out.println("Current donation interval: " + app.getDonationIntervalDays() + " day(s).");
+                        int interval = readInt("Enter new donation interval in days (standard: 90): ");
+                        app.setDonationIntervalDays(interval);
+                        System.out.println("Donation interval updated to " + interval + " day(s).");
+                        break;
                     case 0:
                         run = false;
                         break;
                     default:
                         System.out.println("Invalid choice.");
                 }
+            } catch (DonorIneligibleException e) {
+                System.out.println("DEFERRAL NOTICE: " + e.getMessage());
             } catch (Exception e) {
                 System.out.println("Error: " + e.getMessage());
             }
