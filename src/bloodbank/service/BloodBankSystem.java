@@ -476,8 +476,42 @@ public class BloodBankSystem {
                 accepted++;
             }
         }
-        System.out.println("\n--- SUMMARY REPORT ---\nHospitals: " + hc + " (pending " + pendingH + ")\nDonors: " + dc + "\nDonations: " + doc + " (accepted " + accepted + ")\nBlood units created: " + uc + "\nRequests: " + rc + " (pending " + pendingR + ")\nIssues: " + ic + "\nDonation interval policy: " + donationIntervalDays + " days");
+        int avail = 0;
+        int issued = 0;
+        int expired = 0;
+        for (int i = 0; i < uc; i++) {
+            if (units[i].getStatus() == BloodUnitStatus.AVAILABLE) {
+                avail++;
+            } else if (units[i].getStatus() == BloodUnitStatus.ISSUED) {
+                issued++;
+            } else if (units[i].getStatus() == BloodUnitStatus.EXPIRED) {
+                expired++;
+            }
+        }
+        System.out.println("\n--- SUMMARY REPORT ---\nHospitals: " + hc + " (pending " + pendingH + ")\nDonors: " + dc + "\nDonations: " + doc + " (accepted " + accepted + ")\nBlood units created: " + uc + " (Available: " + avail + ", Issued: " + issued + ", Expired: " + expired + ")\nRequests: " + rc + " (pending " + pendingR + ")\nIssues: " + ic + "\nDonation interval policy: " + donationIntervalDays + " days");
         printInventory();
+    }
+
+    /**
+     * Sweeps blood units and marks expired units as EXPIRED.
+     * Invoked periodically by the background ExpirySweeper thread.
+     * Synchronized to guarantee thread safety against concurrent Main thread operations.
+     * @return Number of units newly marked as EXPIRED.
+     */
+    public synchronized int sweepExpiredUnits() {
+        int newlyExpired = 0;
+        LocalDate today = LocalDate.now();
+        for (int i = 0; i < uc; i++) {
+            BloodUnit u = units[i];
+            if (u.getStatus() == BloodUnitStatus.AVAILABLE && u.getExpiry().isBefore(today)) {
+                u.setStatus(BloodUnitStatus.EXPIRED);
+                newlyExpired++;
+            }
+        }
+        if (newlyExpired > 0) {
+            saveUnits();
+        }
+        return newlyExpired;
     }
 
     public synchronized BloodUnit[] unitSnapshot() {

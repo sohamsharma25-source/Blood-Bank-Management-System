@@ -3,6 +3,7 @@ package bloodbank;
 import bloodbank.exception.*;
 import bloodbank.model.*;
 import bloodbank.service.BloodBankSystem;
+import bloodbank.thread.ExpirySweeper;
 import bloodbank.thread.LowStockMonitor;
 import java.time.LocalDate;
 import java.util.Scanner;
@@ -16,6 +17,12 @@ public class Main {
     public static void main(String[] args) {
         System.out.println("=== BLOOD BANK MANAGEMENT SYSTEM ===");
         System.out.println("Demo admin credentials: admin / admin123 (change for any real deployment)");
+
+        // Start background expiry sweeper thread (daemon)
+        ExpirySweeper sweeper = new ExpirySweeper(app);
+        Thread sweeperThread = new Thread(sweeper, "ExpirySweeper-Thread");
+        sweeperThread.setDaemon(true);
+        sweeperThread.start();
 
         boolean run = true;
         while (run) {
@@ -40,6 +47,8 @@ public class Main {
             }
         }
 
+        sweeper.stop();
+        sweeperThread.interrupt();
         sc.close();
         System.out.println("Goodbye.");
     }
@@ -122,7 +131,17 @@ public class Main {
         }
         Admin admin = new Admin("ADMIN-1", "System Administrator", u, p);
         System.out.println("Welcome, " + admin.displayName());
-        adminMenu();
+
+        LowStockMonitor monitor = new LowStockMonitor(app);
+        Thread monitorThread = new Thread(monitor, "LowStockMonitor-Thread");
+        monitorThread.setDaemon(true);
+        monitorThread.start();
+        try {
+            adminMenu();
+        } finally {
+            monitor.stop();
+            monitorThread.interrupt();
+        }
     }
 
     private static void adminMenu() {
